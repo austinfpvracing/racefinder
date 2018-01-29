@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Lambda Function to fetch upcoming races for a MultiGP Chapter
+
+
+Parameters:
+  MultiGPChapter:
+    Type: String
+    Description: Chapter URL Slug
+
+  JsonOutputBucket:
+    Type: String
+    Description: Name of S3 Bucket used for hosting json
+  
+Resources:
+  RaceFinderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: racefinder.zip
+      Handler: races.lambda_multigp
+      Runtime: python2.7
+      MemorySize: 512
+      Timeout: 60
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          MGP_CHAPTER: !Ref MultiGPChapter
+          OUTPUT_BUCKET: !Ref RaceJsonBucket
+
+  RaceFinderSchedule:
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: RaceFinderSchedule
+      ScheduleExpression: rate(1 day)
+      Targets:
+        -
+          Arn: !GetAtt RaceFinderFunction.Arn
+          Id: DailyRaceFinder
+  
+  RaceFinderFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RaceFinderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RaceFinderSchedule.Arn
+  
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:*
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:PutObjectAcl
+            Resource: !GetAtt RaceJsonBucket.Arn
+
+  RaceJsonBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref JsonOutputBucket
+      AccessControl: PublicRead
+    DeletionPolicy: Delete
+  
+  RaceJsonBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref RaceJsonBucket
+      PolicyDocument:
+        Statement:
+        - Sid: PublicReadForGetBucketObjects
+          Effect: Allow
+          Principal: '*'
+          Action: s3:GetObject
+          Resource: !Sub arn:aws:s3:::${RaceJsonBucket}/*
+
+
+Outputs:
+  LambdaFunction:
+    Value: !Ref RaceFinderFunction

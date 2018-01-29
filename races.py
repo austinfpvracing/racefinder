@@ -2,13 +2,14 @@ import argparse
 import arrow
 import json
 from lxml import html
+import os
 import requests
 
 
 class RaceFinder(object):
     url = "https://www.multigp.com/mgp/chapters/view/{chapter}"
 
-    def upcoming_races(self, chapter):
+    def upcoming_races(self):
         tree = html.fromstring(requests.get(self.url.format(chapter=chapter)).content)
 
         payload = []
@@ -39,6 +40,16 @@ class RaceFinder(object):
 
         return json.dumps(payload, indent=4, separators=(',', ': '))
 
+
+def lambda_multigp(event, context):
+    racefinder = new RaceFinder()
+    json_string = racefinder.upcoming_races(os.environ.get('MGP_CHAPTER'))
+
+    # Upload to s3
+    s3 = boto3.resource('s3')
+    s3.Object(os.environ.get('OUTPUT_BUCKET'), 'upcoming.json').put(Body=json_string)
+
+    print json_string
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Find upcoming races for a MultiGP chapter')
